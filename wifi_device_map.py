@@ -65,8 +65,27 @@ def get_arp_table():
         pass
     return devices
 
-def scan_lan(network):
-    hosts = list(network.hosts())
+def get_device_name(ip):
+    try:
+        name = socket.gethostbyaddr(ip)[0]
+        if name and name != ip:
+            return name.rstrip(".")
+    except (socket.herror, socket.gaierror, OSError):
+        pass
+
+    try:
+        result = subprocess.run(["ping", "-a", "-n", "1", "-w", str(PING_TIMEOUT_MS), ip], capture_output=True, text=True, timeout=2, encoding="utf-8", errors="ignore")
+        first_line = result.stdout.splitlines()[0] if result.stdout.splitlines() else ""
+        match = re.search(r"Pinging\s+([^\s\[]+)", first_line, re.I)
+        if match and match.group(1) != ip:
+            return match.group(1)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    return "Unknown device"
+
+def scan_lan(network, gateway):
+    hosts = [str(host) for host in network.hosts() if str(host) != gateway]
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         results = list(executor.map(ping, hosts))
     arp = get_arp_table()
@@ -74,7 +93,15 @@ def scan_lan(network):
     for result in results:
         if result:
             ip, latency = result
-            devices.append({"ip": ip, "mac": arp.get(ip, "Unknown"), "latency": latency})
+            mac = arp.get(ip, "Unknown")
+            devices.append({"ip": ip, "mac": mac, "latency": latency, "name": "Resolving..."})
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
+        names = list(executor.map(lambda d: get_device_name(d["ip"]), devices))
+
+    for device, name in zip(devices, names):
+        device["name"] = name
+
     return sorted(devices, key=lambda d: ipaddress.ip_address(d["ip"]))
 
 def stable_angle(value):
@@ -91,16 +118,18 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("Wi-Fi Device Map")
-        self.root.geometry("1180x760")
-        self.root.minsize(950, 650)
+        self.root.geometry("1200x780")
+        self.root.minsize(1000, 680)
         self.root.configure(bg=BG)
         self.devices = []
+        self.gateway = None
+        self.local_ip = None
         self.scanning = False
         self.after_id = None
 
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("Treeview", background=PANEL, fieldbackground=PANEL, foreground=TEXT, rowheight=30, borderwidth=0)
+        style.configure("Treeview", background=PANEL, fieldbackground=PANEL, foreground=TEXT, rowheight=32, borderwidth=0)
         style.configure("Treeview.Heading", background="#17212d", foreground=TEXT, relief="flat")
         style.map("Treeview", background=[("selected", "#1d4260")], foreground=[("selected", "white")])
 
@@ -123,27 +152,35 @@ class App:
         self.canvas.pack(fill="both", expand=True, padx=12, pady=12)
         self.canvas.bind("<Configure>", lambda event: self.draw_map())
 
-        side = tk.Frame(body, bg=BG, width=330)
+        side = tk.Frame(body, bg=BG, width=370)
         side.pack(side="right", fill="y", padx=(14, 0))
         side.pack_propagate(False)
 
-        tk.Label(side, text="Detected devices", font=("Segoe UI", 15, "bold"), bg=BG, fg=TEXT).pack(anchor="w", pady=(4, 8))
+        tk.Label(side, text="Network", font=("Segoe UI", 15, "bold"), bg=BG, fg=TEXT).pack(anchor="w", pady=(4, 8))
+        self.router_label = tk.Label(side, text="Router: detecting...", font=("Segoe UI", 10, "bold"), bg=BG, fg=ACCENT, wraplength=350, justify="left")
+        self.router_label.pack(anchor="w", pady=(0, 10))
+        self.local_label = tk.Label(side, text="This PC: detecting...", font=("Segoe UI", 9), bg=BG, fg=MUTED, wraplength=350, justify="left")
+        self.local_label.pack(anchor="w", pady=(0, 14))
+
+        tk.Label(side, text="Detected devices", font=("Segoe UI", 15, "bold"), bg=BG, fg=TEXT).pack(anchor="w", pady=(0, 8))
         self.count_label = tk.Label(side, text="0 devices", font=("Segoe UI", 10), bg=BG, fg=MUTED)
         self.count_label.pack(anchor="w", pady=(0, 8))
 
         tree_frame = tk.Frame(side, bg=PANEL)
         tree_frame.pack(fill="both", expand=True)
-        self.tree = ttk.Treeview(tree_frame, columns=("ip", "latency"), show="headings")
+        self.tree = ttk.Treeview(tree_frame, columns=("name", "ip", "latency"), show="headings")
+        self.tree.heading("name", text="Device")
         self.tree.heading("ip", text="IP")
-        self.tree.heading("latency", text="Latency")
-        self.tree.column("ip", width=170)
-        self.tree.column("latency", width=90)
+        self.tree.heading("latency", text="Ping")
+        self.tree.column("name", width=160)
+        self.tree.column("ip", width=120)
+        self.tree.column("latency", width=70)
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<<TreeviewSelect>>", self.select_device)
 
         footer = tk.Frame(root, bg=BG)
         footer.pack(fill="x", padx=22, pady=(4, 16))
-        tk.Label(footer, text="Router is centered. Device positions are visual estimates only; IP/MAC/ping cannot determine physical direction or exact feet.", font=("Segoe UI", 9), bg=BG, fg=MUTED).pack(side="left")
+        tk.Label(footer, text="Router = your network gateway. Device names come from Windows hostname/DNS when available.", font=("Segoe UI", 9), bg=BG, fg=MUTED).pack(side="left")
         self.detail = tk.Label(footer, text="", font=("Segoe UI", 9), bg=BG, fg=TEXT)
         self.detail.pack(side="right")
 
@@ -154,7 +191,7 @@ class App:
             return
         self.scanning = True
         self.refresh_button.configure(state="disabled", text="Scanning...")
-        self.status.configure(text="Scanning local network...")
+        self.status.configure(text="Finding your router and scanning the LAN...", fg=MUTED)
         threading.Thread(target=self.scan_worker, daemon=True).start()
 
     def scan_worker(self):
@@ -164,7 +201,7 @@ class App:
         error = None
         if local_ip:
             network = ipaddress.ip_network(f"{local_ip}/24", strict=False)
-            devices = scan_lan(network)
+            devices = scan_lan(network, gateway)
         else:
             error = "Could not determine local IP"
         self.root.after(0, lambda: self.finish_scan(gateway, local_ip, devices, error))
@@ -175,14 +212,24 @@ class App:
         if error:
             self.status.configure(text=error, fg="#ff8d8d")
             return
+
+        self.gateway = gateway
+        self.local_ip = local_ip
         self.devices = devices
-        self.status.configure(text=f"Gateway {gateway or 'unknown'}  •  Local IP {local_ip}  •  {len(devices)} responding devices", fg=GOOD)
-        self.count_label.configure(text=f"{len(devices)} responding devices")
+        router_name = get_device_name(gateway) if gateway else "Network gateway"
+
+        self.router_label.configure(text=f"ROUTER: {router_name}\nIP: {gateway or 'Unknown'}")
+        self.local_label.configure(text=f"THIS PC: {socket.gethostname()}\nIP: {local_ip}")
+        self.status.configure(text=f"Router {gateway or 'unknown'}  •  {len(devices)} other responding devices", fg=GOOD)
+        self.count_label.configure(text=f"{len(devices)} other responding devices")
+
         for item in self.tree.get_children():
             self.tree.delete(item)
+
         for device in devices:
             latency = f"{device['latency']:.1f} ms" if device["latency"] is not None else "—"
-            self.tree.insert("", "end", iid=device["ip"], values=(device["ip"], latency))
+            self.tree.insert("", "end", iid=device["ip"], values=(device["name"], device["ip"], latency))
+
         self.draw_map()
         self.after_id = self.root.after(REFRESH_MS, self.start_scan)
 
@@ -193,9 +240,8 @@ class App:
         cx = width / 2
         cy = height / 2
         radius = min(width, height) * 0.38
-        rings = [(0.25, "25 ft"), (0.5, "50 ft"), (0.75, "75 ft"), (1.0, "100 ft")]
 
-        for fraction, label in rings:
+        for fraction, label in [(0.25, "25 ft"), (0.5, "50 ft"), (0.75, "75 ft"), (1.0, "100 ft")]:
             r = radius * fraction
             self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, outline=GRID, width=1)
             self.canvas.create_text(cx + 8, cy - r + 10, text=label, anchor="w", fill=MUTED, font=("Segoe UI", 8))
@@ -203,24 +249,27 @@ class App:
         self.canvas.create_line(cx-radius, cy, cx+radius, cy, fill=GRID)
         self.canvas.create_line(cx, cy-radius, cx, cy+radius, fill=GRID)
 
-        self.canvas.create_oval(cx-24, cy-24, cx+24, cy+24, fill=ACCENT, outline="")
-        self.canvas.create_text(cx, cy, text="R", fill="#06101a", font=("Segoe UI", 13, "bold"))
-        self.canvas.create_text(cx, cy+40, text="ROUTER", fill=TEXT, font=("Segoe UI", 10, "bold"))
+        self.canvas.create_oval(cx-27, cy-27, cx+27, cy+27, fill=ACCENT, outline="")
+        self.canvas.create_text(cx, cy-2, text="R", fill="#06101a", font=("Segoe UI", 14, "bold"))
+        self.canvas.create_text(cx, cy+44, text="YOUR ROUTER", fill=TEXT, font=("Segoe UI", 10, "bold"))
+        self.canvas.create_text(cx, cy+61, text=self.gateway or "gateway unknown", fill=MUTED, font=("Segoe UI", 8))
 
         count = len(self.devices)
-        for index, device in enumerate(self.devices):
+        import math
+        for device in self.devices:
             key = device["ip"] + device["mac"]
             ring_index = stable_ring(key, count)
             fraction = [0.25, 0.5, 0.75, 0.92][ring_index - 1]
-            angle = stable_angle(key) * 3.1415926535 / 180
+            angle = stable_angle(key) * math.pi / 180
             r = radius * fraction
-            x = cx + r * __import__("math").cos(angle)
-            y = cy + r * __import__("math").sin(angle)
+            x = cx + r * math.cos(angle)
+            y = cy + r * math.sin(angle)
             node = 7
             self.canvas.create_line(cx, cy, x, y, fill="#1b2a39", dash=(2, 5))
             self.canvas.create_oval(x-node, y-node, x+node, y+node, fill=GOOD, outline="")
-            self.canvas.create_text(x+12, y, text=device["ip"], anchor="w", fill=TEXT, font=("Segoe UI", 9))
-            self.canvas.create_text(x+12, y+16, text=device["mac"], anchor="w", fill=MUTED, font=("Segoe UI", 7))
+            name = device["name"] if device["name"] != "Unknown device" else device["ip"]
+            self.canvas.create_text(x+12, y-8, text=name[:24], anchor="w", fill=TEXT, font=("Segoe UI", 9, "bold"))
+            self.canvas.create_text(x+12, y+8, text=device["ip"], anchor="w", fill=MUTED, font=("Segoe UI", 8))
 
     def select_device(self, event=None):
         selected = self.tree.selection()
@@ -230,7 +279,7 @@ class App:
         device = next((d for d in self.devices if d["ip"] == ip), None)
         if device:
             latency = f"{device['latency']:.1f} ms" if device["latency"] is not None else "Unknown"
-            self.detail.configure(text=f"{ip}  •  {device['mac']}  •  {latency}")
+            self.detail.configure(text=f"{device['name']}  •  {ip}  •  {device['mac']}  •  {latency}")
 
     def close(self):
         if self.after_id:
