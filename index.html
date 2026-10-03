@@ -15,7 +15,7 @@
 <div class="orb orb-two"></div>
 <header class="topbar">
 <div class="brand"><div class="brand-mark">P</div><div><strong>PARAMOUNT</strong><span>STUDENT ERP</span></div></div>
-<div class="top-actions"><button class="ghost" data-scroll="features">Features</button><button class="ghost" data-scroll="students">Students</button><button class="outline" data-scroll="login">Student Login</button></div>
+<div class="top-actions"><button class="ghost" data-scroll="features">Features</button><button class="ghost" data-scroll="dashboard">Dashboard</button><button class="ghost" data-scroll="students">Students</button><button class="outline" data-scroll="login">Student Login</button></div>
 </header>
 <main>
 <section class="hero">
@@ -24,7 +24,7 @@
 <h1>Everything students need.<br><span>One beautiful place.</span></h1>
 <p>A modern student portal concept inspired by traditional school ERP systems, redesigned with a presentation-style experience, smooth motion and a clean interface.</p>
 <div class="hero-actions"><button class="primary" data-scroll="login">Enter Student Portal <span>→</span></button><button class="text-btn" data-scroll="features">Explore features</button></div>
-<div class="stats"><div><strong>24/7</strong><span>Access</span></div><div><strong>01</strong><span>Student Hub</span></div><div><strong>∞</strong><span>Possibilities</span></div></div>
+<div class="stats"><div><strong data-counter="1000">0</strong><span>Students</span></div><div><strong data-counter="12">0</strong><span>Grades</span></div><div><strong data-counter="24">0</strong><span>Hour Access</span></div></div>
 </div>
 <div class="hero-card">
 <div class="window-top"><span></span><span></span><span></span><label>Student Portal</label></div>
@@ -38,7 +38,7 @@
 </div>
 </div>
 </section>
-<section class="features" id="features">
+<section class="quick-dashboard" id="dashboard"><div class="section-label">LIVE DEMO DASHBOARD</div><div class="dash-heading"><div><h2>School at a <span>glance.</span></h2><p>Interactive demo metrics powered entirely in your browser.</p></div><button class="primary" data-scroll="students">Open Directory <span>→</span></button></div><div class="metric-grid"><div class="metric"><span>Total Students</span><strong>1,000</strong><small>Fictional demo data</small></div><div class="metric"><span>Attendance</span><strong>94%</strong><small>Current term</small></div><div class="metric"><span>Assignments</span><strong>128</strong><small>Across all grades</small></div><div class="metric"><span>Average Grade</span><strong>A</strong><small>Demo overview</small></div></div><div class="activity"><div><span class="activity-dot"></span><div><strong>Student directory updated</strong><small>1,000 records available</small></div></div><div><span class="activity-dot"></span><div><strong>Academic dashboard ready</strong><small>Attendance and grade summaries loaded</small></div></div><div><span class="activity-dot"></span><div><strong>Demo mode active</strong><small>No real student data is connected</small></div></div></div></section><section class="features" id="features">
 <div class="section-label">DESIGNED FOR CLARITY</div>
 <h2>A familiar ERP, with a <span>presentation-level</span> interface.</h2>
 <div class="feature-grid">
@@ -47,7 +47,13 @@
 <article><div class="icon">03</div><h3>Smooth Motion</h3><p>Subtle entrance effects, hover states and transitions make every interaction feel polished.</p></article>
 </div>
 </section>
-<section class="students-section" id="students"><div class="section-label">STUDENT DIRECTORY</div><div class="students-heading"><div><h2>1000 <span>Students.</span></h2><p>Demo student records with fictional Nepali names for presentation and UI testing.</p></div><input id="studentSearch" type="search" placeholder="Search students..."></div><div class="student-list" id="studentList"></div><div class="student-count" id="studentCount"></div></section>
+<section class="students-section" id="students">
+<div class="section-label">STUDENT DIRECTORY</div>
+<div class="students-heading"><div><h2>1000 <span>Students.</span></h2><p>Demo student records with fictional Nepali names for presentation and UI testing.</p></div><button class="export-btn" id="exportStudents">Export CSV ↓</button></div>
+<div class="student-toolbar"><input id="studentSearch" type="search" placeholder="Search name or student ID..."><select id="gradeFilter"><option value="all">All grades</option><option value="1">Grade 1</option><option value="2">Grade 2</option><option value="3">Grade 3</option><option value="4">Grade 4</option><option value="5">Grade 5</option><option value="6">Grade 6</option><option value="7">Grade 7</option><option value="8">Grade 8</option><option value="9">Grade 9</option><option value="10">Grade 10</option><option value="11">Grade 11</option><option value="12">Grade 12</option></select><button class="clear-filter" id="clearFilter">Clear</button></div>
+<div class="student-list" id="studentList"></div>
+<div class="student-footer"><div class="student-count" id="studentCount"></div><div class="pagination" id="pagination"></div></div>
+</section>
 <section class="login-section" id="login">
 <div class="login-info"><div class="eyebrow">STUDENT ACCESS</div><h2>Welcome back.</h2><p>Sign in to continue to your student portal.</p><div class="secure"><span>●</span> Secure portal experience</div></div>
 <div class="login-card">
@@ -65,7 +71,7 @@
 </div>
 </section>
 </main>
-<footer><span>Paramount Student ERP Concept</span><span>Modern interface • Responsive • Animated</span></footer>
+<footer><span>Paramount Student ERP Concept</span><span>Modern interface • Responsive • Animated • Demo Data Only</span></footer>
 <div class="toast" id="toast"></div>
 <script src="script.js"></script>
 </body>
